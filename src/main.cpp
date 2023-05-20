@@ -50,6 +50,8 @@ void setup()
 
 void loop()
 {
+  delay(500);
+  Serial.println("aqq");
   while (1)
   {
     if (TIFR1 & 0b00000001)
@@ -84,6 +86,8 @@ void loop()
           // value must be divided by 200 to get measurement in MM
           double d = (double)v / 200.0;
           Serial.println(d);
+          lcd.setCursor(3, 0); // ustawienie kursora drugiej linii
+          lcd.print(String(d, 3) + "mm");
         }
 
         // timed out, re-initialize all variables and try to resync
