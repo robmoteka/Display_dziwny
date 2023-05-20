@@ -5,78 +5,41 @@
 
 LiquidCrystal lcd(10, 9, 8, 7, 6, 5); // deklaracja pinów wyswietlacza polaczonych z Arduino
 
-int bit_array[25];      // For storing the data bit. bit_array[0] = data bit 1 (LSB), bit_array[23] = data bit 24 (MSB).
-unsigned long time_now; // For storing the time when the clock signal is changed from HIGH to LOW (falling edge trigger of data output).
+// int bit_array[25];      // For storing the data bit. bit_array[0] = data bit 1 (LSB), bit_array[23] = data bit 24 (MSB).
+// unsigned long time_now; // For storing the time when the clock signal is changed from HIGH to LOW (falling edge trigger of data output).
 
-int CLOCK_PIN = 2;
-int DATA_PIN = 3;
+#define SDA 3 // data pin from caliper
+#define SCK 2 // clock pin from caliper
 
-void decode()
-{
+#define MAX_SCK 64
+#define MAX_OVF 4
+#define MAX_DIG 8
 
-  lcd.setCursor(3, 0); // ustawienie kursora drugiej linii
-  lcd.print("Czekam...");
+#define EDGE_UP 0
+#define EDGE_DOWN 1
 
-  int sign = 1;
-  int i = 0;
-  float value = 0.0;
-  float result = 0.0;
+unsigned char gv_mode = 0;
 
-  bit_array[i] = digitalRead(DATA_PIN); // Store the 1st bit (start bit) which is always 1.
-  while (digitalRead(CLOCK_PIN) == HIGH)
-  {
-  };
+int gv_arClock[MAX_SCK] = {0}; // this is mostly used to record clock duration, to gain insight, useless otherwise.
+int gv_ixClock = 0;
+int gv_arValue[MAX_DIG] = {0};
 
-  for (i = 1; i <= 24; i++)
-  {
-    while (digitalRead(CLOCK_PIN) == LOW)
-    {
-    } // Wait until clock returns to HIGH
-    bit_array[i] = digitalRead(DATA_PIN);
-    while (digitalRead(CLOCK_PIN) == HIGH)
-    {
-    } // Wait until clock returns to LOW
-  }
-
-  for (i = 0; i <= 24; i++)
-  { // Show the content of the bit array. This is for verification only.
-    Serial.print(bit_array[i]);
-    Serial.print(" ");
-  }
-  Serial.println();
-
-  for (i = 1; i <= 20; i++)
-  { // Turning the value in the bit array from binary to decimal.
-    value = value + (pow(2, i - 1) * bit_array[i]);
-  }
-
-  if (bit_array[21] == 1)
-    sign = -1; // Bit 21 is the sign bit. 0 -> +, 1 => -
-
-  if (bit_array[24] == 1)
-  { // Bit 24 tells the measuring unit (1 -> in, 0 -> mm)
-    result = (value * sign) / 2000.00;
-    Serial.print(result, 3); // Print result with 3 decimals
-    Serial.println(" in");
-    lcd.setCursor(3, 0); // ustawienie kursora drugiej linii
-    lcd.print(String(result, 3) + "inch");
-  }
-  else
-  {
-    result = (value * sign) / 100.00;
-    Serial.print(result, 2); // Print result with 2 decimals
-    Serial.println(" mm");
-    lcd.setCursor(3, 0); // ustawienie kursora drugiej linii
-    lcd.print(String(result, 3) + "mm");
-  }
-  delay(1000);
-}
+int gv_ctReset = 0;
 
 void setup()
 {
 
-  pinMode(CLOCK_PIN, INPUT);
-  pinMode(DATA_PIN, INPUT);
+  pinMode(SCK, INPUT); // make SCK (Digital 2) as input pin
+  pinMode(SDA, INPUT); // make SDA (Digital 3) as input pin
+
+  digitalWrite(SCK, HIGH); // pull up SCK pin so we do not need a pullup resistor
+  digitalWrite(SDA, HIGH); // pull up SDA pin so we do not need a pullup resistor
+
+  TCCR1A = 0x00;
+  TCCR1B = 0x02; // half us, overflow at 32ms. 03= 4us
+  TCCR1C = 0x00;
+
+  Serial.begin(115200);
 
   lcd.begin(16, 2);    // inicjalizacja wyswitlacza
   lcd.setCursor(0, 0); // ustawienie kursora pierwszej linii
@@ -87,16 +50,104 @@ void setup()
 
 void loop()
 {
+  while (1)
+  {
+    if (TIFR1 & 0b00000001)
+    {
+      // see if it is timing out,
+      if (gv_ctReset < MAX_OVF)
+      {
+        gv_ctReset++;
+        TIFR1 = TIFR1 | 0x01;
+      }
+      else
+      {
+        // see if there are any data captured
+        // from experiment, the caliper sends out
+        // 24 bits data periodically
+        if (gv_ixClock == 24)
+        {
+          // if so, print it out
+          long v = 0;
+          v += gv_arValue[2] & 0x1F;
+          v = v << 8;
+          v += gv_arValue[1];
+          v = v << 8;
+          v += gv_arValue[0];
 
-  while (digitalRead(CLOCK_PIN) == LOW)
-  {
-  } // If clock is LOW wait until it turns to HIGH
-  time_now = micros();
-  while (digitalRead(CLOCK_PIN) == HIGH)
-  {
-  } // Wait for the end of the HIGH pulse
-  if ((micros() - time_now) > 500)
-  {           // If the HIGH pulse was longer than 500 micros we are at the start of a new bit sequence
-    decode(); // decode the bit sequence
+          // it seems that when the 5th bit is set in 3rd byte,
+          // the value is negative
+          if (gv_arValue[2] & 0b00100000)
+          {
+            v = -v;
+          }
+          // value must be divided by 200 to get measurement in MM
+          double d = (double)v / 200.0;
+          Serial.println(d);
+        }
+
+        // timed out, re-initialize all variables and try to resync
+        for (int i = 0; i < 3; i++)
+        {
+          gv_arValue[i] = 0;
+        }
+        gv_ixClock = 0;
+        // wait for a LOW on SCK pin,
+        // since signal is inverted, we are waiting for SCK high
+        gv_mode = EDGE_UP;
+        // reset TIMER1 overflow to start over
+        TIFR1 = TIFR1 | 0x01;
+      }
+    }
+
+    // When SCK is LOW, it means clock pin is high from the caliper.
+    if (digitalRead(SCK) == LOW)
+    {
+      // if current mode is detecting a LOW
+      // this means an LOW to HIGH edge detected
+      if (gv_mode == EDGE_UP)
+      {
+        // reset timer 1
+        TCNT1 = 0;
+        TIFR1 = TIFR1 | 0x01;
+        gv_ctReset = 0;
+
+        // wait for edge from UP to DOWN
+        gv_mode = EDGE_DOWN;
+      }
+    }
+    else
+    {
+      if (gv_mode == EDGE_DOWN)
+      {
+        // this means a HIGH to LOW edge detected
+        // which in turn means data should be read from SDA pin
+        int value = digitalRead(SDA);
+        // since data is inverted, we need to invert it back
+        if (value == HIGH)
+        {
+          value = 0;
+        }
+        else
+        {
+          value = 1;
+        }
+        gv_arValue[gv_ixClock / 8] |= value << (gv_ixClock % 8);
+
+        if (gv_ixClock < MAX_SCK)
+        {
+          gv_arClock[gv_ixClock] = TCNT1;
+          gv_ixClock++;
+
+          // reset timer and time-out
+          TCNT1 = 0;
+          TIFR1 = TIFR1 | 0x01;
+          gv_ctReset = 0;
+        }
+
+        // wait for next LOW to HIGH edge
+        gv_mode = EDGE_UP;
+      }
+    }
   }
 }
