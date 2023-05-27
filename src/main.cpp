@@ -5,9 +5,6 @@
 
 LiquidCrystal lcd(10, 9, 8, 7, 6, 5); // deklaracja pinów wyswietlacza polaczonych z Arduino
 
-// int bit_array[25];      // For storing the data bit. bit_array[0] = data bit 1 (LSB), bit_array[23] = data bit 24 (MSB).
-// unsigned long time_now; // For storing the time when the clock signal is changed from HIGH to LOW (falling edge trigger of data output).
-
 #define SDA 3 // data pin from caliper
 #define SCK 2 // clock pin from caliper
 
@@ -28,7 +25,7 @@ int gv_ctReset = 0;
 
 void setup()
 {
-
+  // put your setup code here, to run once:
   pinMode(SCK, INPUT); // make SCK (Digital 2) as input pin
   pinMode(SDA, INPUT); // make SDA (Digital 3) as input pin
 
@@ -40,18 +37,12 @@ void setup()
   TCCR1C = 0x00;
 
   Serial.begin(115200);
-
-  lcd.begin(16, 2);    // inicjalizacja wyswitlacza
-  lcd.setCursor(0, 0); // ustawienie kursora pierwszej linii
-  lcd.print("X: ");    // wyswietlenie tekstu
-  lcd.setCursor(0, 1); // ustawienie kursora pierwszej linii
-  lcd.print("Y: ");    // wyswietlenie tekstu
 }
 
 void loop()
 {
-  delay(500);
-  Serial.println("aqq");
+  // put your main code here, to run repeatedly:
+
   while (1)
   {
     if (TIFR1 & 0b00000001)
@@ -86,8 +77,10 @@ void loop()
           // value must be divided by 200 to get measurement in MM
           double d = (double)v / 200.0;
           Serial.println(d);
-          lcd.setCursor(3, 0); // ustawienie kursora drugiej linii
-          lcd.print(String(d, 3) + "mm");
+        }
+        else
+        {
+          Serial.println("a");
         }
 
         // timed out, re-initialize all variables and try to resync
