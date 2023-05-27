@@ -78,10 +78,6 @@ void loop()
           double d = (double)v / 200.0;
           Serial.println(d);
         }
-        else
-        {
-          Serial.println("a");
-        }
 
         // timed out, re-initialize all variables and try to resync
         for (int i = 0; i < 3; i++)
