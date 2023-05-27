@@ -5,153 +5,127 @@
 
 LiquidCrystal lcd(10, 9, 8, 7, 6, 5); // deklaracja pinów wyswietlacza polaczonych z Arduino
 
-// int bit_array[25];      // For storing the data bit. bit_array[0] = data bit 1 (LSB), bit_array[23] = data bit 24 (MSB).
-// unsigned long time_now; // For storing the time when the clock signal is changed from HIGH to LOW (falling edge trigger of data output).
+#define clk 2
+#define dat 3
 
-#define SDA 3 // data pin from caliper
-#define SCK 2 // clock pin from caliper
+boolean data[24] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // 24 bit boolean array for storing the received data
+// to jest pierwsza cyfra absolutna (chyba zawsze +)
+boolean data_r[24] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// relatywna druga
+boolean mm_in = 0; // 0 for mm, 1 for inch
 
-#define MAX_SCK 64
-#define MAX_OVF 4
-#define MAX_DIG 8
+int received_bit_location = 0;
+float measured_value = 0.0;
+void process_data();
+long last_received = 0;
+int offset = 100; // offset między ramkami
+char bitsy = 'a';
 
-#define EDGE_UP 0
-#define EDGE_DOWN 1
+void clk_ISR()
+{
+  if (millis() - last_received > offset)
+  {
+    received_bit_location = 0;
+  }
 
-unsigned char gv_mode = 0;
+  if (received_bit_location <= 23)
+  {
+    data[received_bit_location] = !digitalRead(dat); // Wykrzyknik (!) inverting the received data due to the hardware circuit level shifting
+    received_bit_location++;
+  }
 
-int gv_arClock[MAX_SCK] = {0}; // this is mostly used to record clock duration, to gain insight, useless otherwise.
-int gv_ixClock = 0;
-int gv_arValue[MAX_DIG] = {0};
+  if (received_bit_location == 23)
+  {
+    received_bit_location = 0;
+    process_data();
+  }
 
-int gv_ctReset = 0;
+  last_received = millis();
+}
 
 void setup()
 {
 
-  pinMode(SCK, INPUT); // make SCK (Digital 2) as input pin
-  pinMode(SDA, INPUT); // make SDA (Digital 3) as input pin
-
-  digitalWrite(SCK, HIGH); // pull up SCK pin so we do not need a pullup resistor
-  digitalWrite(SDA, HIGH); // pull up SDA pin so we do not need a pullup resistor
-
-  TCCR1A = 0x00;
-  TCCR1B = 0x02; // half us, overflow at 32ms. 03= 4us
-  TCCR1C = 0x00;
-
+  pinMode(clk, INPUT);
+  pinMode(dat, INPUT);
+  attachInterrupt(digitalPinToInterrupt(clk), clk_ISR, FALLING);
+  lcd.begin(16, 2); // inicjalizacja wyswitlacza
+  //   lcd.setCursor(0, 0); // ustawienie kursora pierwszej linii
+  //   lcd.print("X: ");    // wyswietlenie tekstu
+  //   lcd.setCursor(0, 1); // ustawienie kursora pierwszej linii
+  //   lcd.print("Y: ");    // wyswietlenie tekstu
+  //
   Serial.begin(115200);
+}
 
-  lcd.begin(16, 2);    // inicjalizacja wyswitlacza
-  lcd.setCursor(0, 0); // ustawienie kursora pierwszej linii
-  lcd.print("X: ");    // wyswietlenie tekstu
-  lcd.setCursor(0, 1); // ustawienie kursora pierwszej linii
-  lcd.print("Y: ");    // wyswietlenie tekstu
+void process_data()
+{
+
+  measured_value = 0.0;
+  for (int x = 0; x <= 47; x++)
+  {
+  }
+
+  if (data[23] == 0)
+  { // if it's in the mm mode
+    mm_in = 0;
+    // converting binary to decimal value
+    for (int i = 1; i <= 15; i++)
+    {
+      measured_value += data[i] * pow(2, i) / 100.0;
+    }
+    if (data[20] == 1)
+    {
+      measured_value = measured_value * -1; // add the negative sign if it exists
+    }
+  }
+
+  if (data[23] == 1)
+  { // if it's in the inch mode
+    mm_in = 1;
+    // converting binary to decimal value
+    for (int i = 1; i <= 19; i++)
+    {
+      measured_value += data[i] * pow(2, (i - 1)) / 1000.0;
+    }
+    if (data[0] == 1)
+    {
+      measured_value += 0.0005; // add the 0.5 mil sign if it exists
+    }
+    if (data[20] == 1)
+    {
+      measured_value = measured_value * -1; // add the negative sign if it exists
+    }
+  }
 }
 
 void loop()
 {
-  delay(500);
-  Serial.println("aqq");
-  while (1)
-  {
-    if (TIFR1 & 0b00000001)
-    {
-      // see if it is timing out,
-      if (gv_ctReset < MAX_OVF)
-      {
-        gv_ctReset++;
-        TIFR1 = TIFR1 | 0x01;
-      }
-      else
-      {
-        // see if there are any data captured
-        // from experiment, the caliper sends out
-        // 24 bits data periodically
-        if (gv_ixClock == 24)
-        {
-          // if so, print it out
-          long v = 0;
-          v += gv_arValue[2] & 0x1F;
-          v = v << 8;
-          v += gv_arValue[1];
-          v = v << 8;
-          v += gv_arValue[0];
-
-          // it seems that when the 5th bit is set in 3rd byte,
-          // the value is negative
-          if (gv_arValue[2] & 0b00100000)
-          {
-            v = -v;
-          }
-          // value must be divided by 200 to get measurement in MM
-          double d = (double)v / 200.0;
-          Serial.println(d);
-          lcd.setCursor(3, 0); // ustawienie kursora drugiej linii
-          lcd.print(String(d, 3) + "mm");
-        }
-
-        // timed out, re-initialize all variables and try to resync
-        for (int i = 0; i < 3; i++)
-        {
-          gv_arValue[i] = 0;
-        }
-        gv_ixClock = 0;
-        // wait for a LOW on SCK pin,
-        // since signal is inverted, we are waiting for SCK high
-        gv_mode = EDGE_UP;
-        // reset TIMER1 overflow to start over
-        TIFR1 = TIFR1 | 0x01;
-      }
-    }
-
-    // When SCK is LOW, it means clock pin is high from the caliper.
-    if (digitalRead(SCK) == LOW)
-    {
-      // if current mode is detecting a LOW
-      // this means an LOW to HIGH edge detected
-      if (gv_mode == EDGE_UP)
-      {
-        // reset timer 1
-        TCNT1 = 0;
-        TIFR1 = TIFR1 | 0x01;
-        gv_ctReset = 0;
-
-        // wait for edge from UP to DOWN
-        gv_mode = EDGE_DOWN;
-      }
-    }
-    else
-    {
-      if (gv_mode == EDGE_DOWN)
-      {
-        // this means a HIGH to LOW edge detected
-        // which in turn means data should be read from SDA pin
-        int value = digitalRead(SDA);
-        // since data is inverted, we need to invert it back
-        if (value == HIGH)
-        {
-          value = 0;
-        }
-        else
-        {
-          value = 1;
-        }
-        gv_arValue[gv_ixClock / 8] |= value << (gv_ixClock % 8);
-
-        if (gv_ixClock < MAX_SCK)
-        {
-          gv_arClock[gv_ixClock] = TCNT1;
-          gv_ixClock++;
-
-          // reset timer and time-out
-          TCNT1 = 0;
-          TIFR1 = TIFR1 | 0x01;
-          gv_ctReset = 0;
-        }
-
-        // wait for next LOW to HIGH edge
-        gv_mode = EDGE_UP;
-      }
-    }
+  // put your main code here, to run repeatedly:
+  if (mm_in == 1)
+  { // if it's in the inch mode
+    // lcd.setCursor(3, 0);
+    // lcd.print(String(measured_value, 4));
   }
+  else
+  {
+    // lcd.setCursor(3, 1);
+    // lcd.print(String(measured_value, 2));
+  }
+  // for (int i = 3; i <= 37; i++)
+  // {
+  //   if (i < 19)
+  //   {
+  //     lcd.setCursor(i - 3, 0);
+  //     lcd.print(data[i]);
+  //   }
+  //   else
+  //   {
+  //     lcd.setCursor(i - 22, 1);
+  //     lcd.print(data[i]);
+  //   }
+  // }
+
+  Serial.println(measured_value);
+  delay(500);
 }
