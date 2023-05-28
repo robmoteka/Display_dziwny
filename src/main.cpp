@@ -1,16 +1,16 @@
 
 #include <Arduino.h>
 
-#include <LiquidCrystal.h> //wlaczenie biblioteki
+// #include <LiquidCrystal.h> //wlaczenie biblioteki
 
-LiquidCrystal lcd(10, 9, 8, 7, 6, 5); // deklaracja pinów wyswietlacza polaczonych z Arduino
+// LiquidCrystal lcd(10, 9, 8, 7, 6, 5); // deklaracja pinów wyswietlacza polaczonych z Arduino
 
 #define clk 2
 #define dat 3
 
-boolean data[24] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // 24 bit boolean array for storing the received data
+boolean data[48] = {0}; // 24 bit boolean array for storing the received data
 // to jest pierwsza cyfra absolutna (chyba zawsze +)
-boolean data_r[24] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+boolean data_r[24] = {0};
 // relatywna druga
 boolean mm_in = 0; // 0 for mm, 1 for inch
 
@@ -18,7 +18,7 @@ int received_bit_location = 0;
 float measured_value = 0.0;
 void process_data();
 long last_received = 0;
-int offset = 100; // offset między ramkami
+int offset = 320; // offset między ramkami
 char bitsy = 'a';
 
 void clk_ISR()
@@ -28,13 +28,14 @@ void clk_ISR()
     received_bit_location = 0;
   }
 
-  if (received_bit_location <= 23)
+  if (received_bit_location <= 47)
   {
-    data[received_bit_location] = !digitalRead(dat); // Wykrzyknik (!) inverting the received data due to the hardware circuit level shifting
+    data[received_bit_location] = digitalRead(dat); // Wykrzyknik (!) inverting the received data due to the hardware circuit level shifting
     received_bit_location++;
+    // Serial.println(received_bit_location);
   }
 
-  if (received_bit_location == 23)
+  if (received_bit_location == 47)
   {
     received_bit_location = 0;
     process_data();
@@ -46,14 +47,15 @@ void clk_ISR()
 void setup()
 {
 
-  pinMode(clk, INPUT);
-  pinMode(dat, INPUT);
+  pinMode(clk, INPUT_PULLUP);
+  pinMode(dat, INPUT_PULLUP);
+
   attachInterrupt(digitalPinToInterrupt(clk), clk_ISR, FALLING);
-  lcd.begin(16, 2); // inicjalizacja wyswitlacza
-  //   lcd.setCursor(0, 0); // ustawienie kursora pierwszej linii
-  //   lcd.print("X: ");    // wyswietlenie tekstu
-  //   lcd.setCursor(0, 1); // ustawienie kursora pierwszej linii
-  //   lcd.print("Y: ");    // wyswietlenie tekstu
+  // lcd.begin(16, 2); // inicjalizacja wyswitlacza
+  //    lcd.setCursor(0, 0); // ustawienie kursora pierwszej linii
+  //    lcd.print("X: ");    // wyswietlenie tekstu
+  //    lcd.setCursor(0, 1); // ustawienie kursora pierwszej linii
+  //    lcd.print("Y: ");    // wyswietlenie tekstu
   //
   Serial.begin(115200);
 }
@@ -64,7 +66,10 @@ void process_data()
   measured_value = 0.0;
   for (int x = 0; x <= 47; x++)
   {
+    Serial.print(data[x]);
+    Serial.print(";");
   }
+  Serial.println("");
 
   if (data[23] == 0)
   { // if it's in the mm mode
@@ -126,6 +131,6 @@ void loop()
   //   }
   // }
 
-  Serial.println(measured_value);
+  // Serial.println(measured_value);
   delay(500);
 }
